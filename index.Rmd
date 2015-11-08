@@ -1,0 +1,167 @@
+---
+title: "Practical Machine Learning - Human Activity Recognition"
+author: "Arno Kemner"
+date: "November 7, 2015"
+output: html_document
+---
+
+## Summary
+This is a project for the practical machine learning [coursera class](https://class.coursera.org/predmachlearn-034) in the Data Science Specialization.
+
+This project is about Human Activity Recognition (HAR in short). 
+
+### Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har>
+
+### This project
+The goal for this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. Any of the other variables may be used to predict with. The accelerometers variables on the belt, forearm, arm, and dumbell are used to predict.
+This document contains:
+- how the model is built
+- the cross validation
+- expected out of sample error
+- prediction of 20 different test cases
+
+---
+
+## Pre requisites
+
+Load necessarily libraries and set the seed for reproducibality
+
+```{r}
+require(ggplot2, quietly = T)
+require(corrplot, quietly = T)
+require(rpart, quietly = T)
+require(rpart.plot, quietly = T)
+require(caret, quietly = T)
+require(randomForest, quietly = T)
+set.seed(1)
+```
+
+## Getting the data
+
+```{r}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile, method="curl")
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile, method="curl")
+}
+```
+
+## Read the data
+
+```{r}
+train <- read.csv("./data/pml-training.csv")
+test  <- read.csv("./data/pml-testing.csv")
+dim(train)
+dim(test)
+```
+
+The training data set contains `r dim(train)[1]` observations and `r dim(train)[2]` variables. The test data set contains `r dim(test)[1]` observations. The 'classe' variable is the outcome to predict.
+
+---
+ 
+## Cleaning the data
+
+The data contains columns which have many missing values (NA)
+We are going to remove them.
+
+```{r}
+train <- train[, colSums(is.na(train)) == 0] 
+test  <- test[, colSums(is.na(test)) == 0] 
+```
+
+Now remove the columns which have nothing to do with the acceloremeters. These are the X variable, variables with a timestamp and the window variables.
+
+```{r}
+train <- train[, !(grepl("^X|timestamp|window", names(train)))]
+test  <- test[, !(grepl("^X|timestamp|window", names(test)))]
+```
+
+Some variables such as 'kurtosis-roll-forearm' appear in the training data but were missing in the test data (NA). Or some variable such as 'amplitude-yaw-forearm' are factors with only 3 levels: "", "0.0" or "DIV/0". This is meaningless, we remove them also
+
+```{r}
+classe <- train$classe
+train  <- train[, sapply(train, is.numeric)]
+train$classe <- classe
+test   <- test[, sapply(test, is.numeric)]
+
+# remove problem_id variable
+test   <- test[, -length(names(test))]
+```
+
+---
+
+## Create train and test data
+
+split the training set into a pure training data set (75%) and a validation data set (25%). The validation data is for cross validation.
+
+```{r}
+inTrain   <- createDataPartition(train$classe, p=0.75, list=F)
+trainData <- train[inTrain, ]
+testData  <- train[-inTrain, ]
+```
+
+---
+
+## Fitting a model
+
+We fit a predictive model for activity recognition using Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general. We will use 5-fold cross validation when applying the algorithm.
+
+```{r fittingModel, cache=TRUE}
+fitRf <- train(classe ~ ., data=trainData, method="rf", trControl=trainControl(method="cv", 5), ntree=250)
+fitRf
+```
+
+Then, we estimate the performance of the model on the validation data set.
+
+```{r}
+predictRf <- predict(fitRf, testData)
+confusionMatrix(testData$classe, predictRf)
+accuracy <- postResample(predictRf, testData$classe)
+accuracy
+oose <- 1 - as.numeric(confusionMatrix(testData$classe, predictRf)$overall[1])
+oose
+```
+
+So, the estimated accuracy of the model is `r round(accuracy*10000)/100`% and the estimated out-of-sample error is `r round(oose*10000)/100`%.
+
+---
+
+## Prediction provided test data
+
+Now, we apply the model to the original testing data set downloaded from the data source.
+
+```{r}
+result <- predict(fitRf, test)
+result
+```
+
+---
+
+## Plots
+
+Correlation Matrix Visualization
+
+```{r}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method="color")
+```
+
+---
+
+Tree Visualization
+
+```{r}
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel)
+```
+
+

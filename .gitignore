@@ -1,0 +1,6 @@
+/data/
+/index_cache/
+/index_files/
+.RData
+.Rhistory
+
